@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 CATEGORIES = {'RES': 'Restaurants', 'COF': 'Coffee', 'BAK': 'Bakeries', 'DES': 'Desserts', 'BAR': 'Bars'}
-BANDS = ['Favorites', 'Very good', 'Good', 'Disappointing']
+BANDS = ['Favorites', 'Very good', 'Good', 'Fine', "Didn't like", 'Bad']
 
 
 def now():
@@ -301,11 +301,21 @@ class Store:
             if not bands or len(bands) > 10 or any(not b or len(b)>60 for b in bands) or len(set(bands)) != len(bands):
                 raise ValueError('Use 1–10 different, nonempty band names (up to 60 characters).')
             old = s['bands'][c]
+            renames = r.get('renames')
+            if renames is not None and (not isinstance(renames, dict) or any(name not in old or replacement not in bands for name,replacement in renames.items())):
+                raise ValueError('Band renames must map existing names to new names.')
             for k in s['order'][c]:
                 band = s['places'][k]['band']
                 if band in old:
-                    index = old.index(band)
-                    s['places'][k]['band'] = bands[index] if index < len(bands) else None
+                    if renames is not None:
+                        replacement = renames.get(band, band)
+                        s['places'][k]['band'] = replacement if replacement in bands else None
+                    else:
+                        index = old.index(band)
+                        s['places'][k]['band'] = bands[index] if index < len(bands) else None
+            if renames is not None:
+                for suggestion in s['sessions'].get(c, {}).get('band_suggestions', []):
+                    suggestion['band'] = renames.get(suggestion['band'], suggestion['band'])
             s['bands'][c] = bands
             return 'Edited quality bands'
         if action in ('place', 'move'):

@@ -301,4 +301,14 @@ class WorkshopTests(unittest.TestCase):
         self.assertIsNone(Store.next_pair(state,'RES',session))
         self.assertIn('Fewer than two',session['notice'])
 
+    def test_band_insertion_and_rename_preserve_assignments(self):
+        self.action('bands', bands=['Favorites','Very good','Good','Disappointing'])
+        self.action('place',key='RES:1',band='Good')
+        self.action('place',key='RES:2',band='Disappointing')
+        before=self.state()['order']['RES'][:]
+        self.action('bands',bands=['Favorites','Very good','Good','Fine',"Didn't like",'Bad'],renames={'Disappointing':"Didn't like"})
+        self.assertEqual(self.state()['places']['RES:1']['band'],'Good')
+        self.assertEqual(self.state()['places']['RES:2']['band'],"Didn't like")
+        self.assertEqual(self.state()['order']['RES'],before)
+
 if __name__=='__main__':unittest.main()
