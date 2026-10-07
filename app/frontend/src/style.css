@@ -1296,3 +1296,40 @@ footer {
     scroll-behavior: auto !important;
   }
 }
+
+.topbar-navigation {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+.back-button {
+  background: transparent;
+  padding: 7px 10px;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+@media (max-width: 800px) {
+  .topbar-navigation {
+    gap: 5px;
+  }
+  .topbar .category-label {
+    font-size: 0;
+  }
+  .topbar .category-label select {
+    font-size: 12px;
+    max-width: 145px;
+  }
+  .back-button {
+    padding: 6px;
+    font-size: 12px;
+  }
+  .save-tools .saved,
+  .save-tools .save-error {
+    max-width: 68px;
+    white-space: normal;
+  }
+  .session-strip {
+    flex-wrap: wrap;
+  }
+}

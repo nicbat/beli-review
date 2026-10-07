@@ -193,7 +193,7 @@ class WorkshopTests(unittest.TestCase):
         self.assertEqual(self.state()['sessions']['RES']['proposal'],self.state()['order']['RES'])
 
     def test_unknown_stops_questioning_same_place(self):
-        self.action('start')
+        self.action('start',target='RES:1')
         self.action('answer',outcome='unknown')
         self.assertIsNone(self.state()['sessions']['RES']['pair'])
         self.action('accept')
@@ -205,7 +205,7 @@ class WorkshopTests(unittest.TestCase):
         self.action('answer',outcome='left')
         self.action('accept')
         self.action('start')
-        self.assertEqual(self.state()['sessions']['RES']['target'],'RES:2')
+        self.assertNotIn(self.state()['sessions']['RES']['target'],['RES:1','RES:2'])
 
     def test_revisit_conflict_discard_restores_old_evidence(self):
         self.action('start')
@@ -243,5 +243,35 @@ class WorkshopTests(unittest.TestCase):
         self.assertFalse(self.state()['comparisons'][0]['active'])
         self.action('discard')
         self.assertTrue(self.state()['comparisons'][0]['active'])
+
+    def test_mixed_session_spreads_questions_across_places(self):
+        self.action('start')
+        for _ in range(5):
+            if not self.state()['sessions']['RES']['pair']:
+                break
+            self.action('answer',outcome='equal')
+        decisions=self.state()['comparisons']
+        self.assertGreaterEqual(len(decisions),3)
+        targets=[r['a'] for r in decisions]
+        self.assertEqual(len(targets),len(set(targets)))
+        for k in self.state()['order']['RES']:
+            self.assertLessEqual(sum(k in (r['a'],r['b']) for r in decisions),2)
+
+    def test_mixed_unknown_moves_on_to_fresh_place(self):
+        self.action('start');self.action('answer',outcome='unknown')
+        pair=self.state()['sessions']['RES']['pair']
+        self.assertIsNotNone(pair)
+        self.assertNotIn('RES:1',pair)
+
+    def test_focused_review_keeps_requested_target(self):
+        self.action('start',target='RES:1');self.action('answer',outcome='equal')
+        self.assertEqual(self.state()['sessions']['RES']['pair'][0],'RES:1')
+
+    def test_skipped_pair_not_automatically_repeated(self):
+        self.action('start',target='RES:1')
+        pair=self.state()['sessions']['RES']['pair']
+        self.action('answer',outcome='skip');self.action('accept')
+        self.action('start',target='RES:1')
+        self.assertNotEqual(set(self.state()['sessions']['RES']['pair']),set(pair))
 
 if __name__=='__main__':unittest.main()

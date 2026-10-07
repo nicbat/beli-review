@@ -388,7 +388,7 @@ class Store:
             if target and target not in s['order'][c]:
                 raise ValueError('Choose a place in this category.')
             session = dict(id=str(uuid.uuid4()), status='active', count=0, limit=limit, before=s['order'][c][:],
-                           proposal=s['order'][c][:], answers=[], pair=None, target=target, notice='', started=now(), superseded=[], band_suggestions=[])
+                           proposal=s['order'][c][:], answers=[], pair=None, target=target, mode='focused' if target else 'mixed', notice='', started=now(), superseded=[], band_suggestions=[])
             s['sessions'][c] = session
             session['pair'] = self.next_pair(s, c, session)
             return 'Started comparison session'
@@ -439,7 +439,7 @@ class Store:
             if outcome == 'unknown':
                 s['places'][a]['status'] = 'uncertain'
                 session['notice'] = 'Set aside for later because you don’t remember this place.'
-            session['pair'] = self.next_pair(s, c, session) if session['count'] < session['limit'] and outcome != 'unknown' else None
+            session['pair'] = self.next_pair(s, c, session) if session['count'] < session['limit'] and (outcome != 'unknown' or session.get('mode','mixed') == 'mixed') else None
             return 'Saved comparison'
         if action in ('accept', 'discard'):
             session = s['sessions'].get(c)
@@ -453,7 +453,7 @@ class Store:
                     if previous.index(k) != s['order'][c].index(k):
                         s.setdefault('moves', []).append(dict(key=k, reason='Accepted comparison', at=now()))
                 for record in s['comparisons']:
-                    if record['session'] == session['id'] and record['active'] and record['outcome'] in ('left', 'right'):
+                    if record['session'] == session['id'] and record['active'] and record['outcome'] in ('left', 'right', 'equal'):
                         k = record['a']
                         if s['places'][k]['status'] != 'uncertain':
                             s['places'][k]['status'] = 'provisional'
@@ -495,17 +495,25 @@ class Store:
 
     @staticmethod
     def next_pair(s, c, session):
-        order = [k for k in session['proposal'] if not s['places'][k]['excluded'] and not s['places'][k]['missing']]
+        order = [k for k in session['proposal'] if not s['places'][k]['excluded'] and not s['places'][k]['missing']
+                 and (s['places'][k]['status'] != 'uncertain' or (session.get('mode') == 'focused' and session.get('target') == k))]
         if len(order) < 2:
             return None
         decisions = [r for r in s['comparisons'] if r['active'] and r['category'] == c]
-        seen = {frozenset((r['a'],r['b'])) for r in decisions
-                if r['outcome'] in ('left','right','equal') or r['session'] == session['id']}
+        # Settled, equal, and skipped pairs are not automatically asked again.
+        # Explicit Revisit can still reopen any old pair.
+        seen = {frozenset((r['a'],r['b'])) for r in decisions}
         positions = {k:i for i,k in enumerate(order)}
-        if not session.get('target'):
-            # Already reviewed places are left alone unless explicitly selected or flagged.
-            targets = [k for k in order if s['places'][k]['status'] in ('new','unreviewed') or s['places'][k]['attention']]
-            targets.sort(key=lambda k:(s['places'][k]['status'] != 'new', not s['places'][k]['attention'], positions[k]))
+        recent = decisions[-20:]
+        exposure = {k:sum(k in (r['a'],r['b']) for r in recent) for k in order}
+        session_decisions = [r for r in decisions if r['session'] == session['id']]
+        session_exposure = {k:sum(k in (r['a'],r['b']) for r in session_decisions) for k in order}
+        asked_targets = {r['a'] for r in session_decisions}
+        mixed = session.get('mode','mixed') == 'mixed'
+        if mixed or not session.get('target'):
+            targets = [k for k in order if (s['places'][k]['status'] in ('new','unreviewed') or s['places'][k]['attention'])
+                       and (not mixed or (k not in asked_targets and session_exposure[k] < 2))]
+            targets.sort(key=lambda k:(s['places'][k]['status'] != 'new', exposure[k], not s['places'][k]['attention'], positions[k]))
             if not targets:
                 return None
             session['target'] = targets[0]
@@ -528,7 +536,8 @@ class Store:
                     found.add(k); todo.extend(edges[k]-found)
             return found
         better,worse=reachable(reverse),reachable(graph)
-        candidates=[b for b in order if b != a and b not in better|worse and frozenset((a,b)) not in seen]
+        candidates=[b for b in order if b != a and b not in better|worse and frozenset((a,b)) not in seen
+                    and (not mixed or session_exposure[b] < 2)]
         if not candidates:
             return None
         # Reference order is an explicit user choice. Narrow within those anchors;
@@ -541,15 +550,20 @@ class Store:
             if interval:
                 same_band=[b for b in interval if s['places'][b]['band']==s['places'][a]['band']]
                 pool=same_band or interval
-                return [a,pool[len(pool)//2]]
+                midpoint=positions[pool[len(pool)//2]]
+                pool.sort(key=lambda k:(exposure[k], abs(positions[k]-midpoint)))
+                session['prompt_reason'] = 'Compare with a reference place you selected.'
+                return [a,pool[0]]
         candidates.sort(key=lambda b:(s['places'][b]['band'] != s['places'][a]['band'],
+                                     exposure[b] if mixed else 0,
                                      s['places'][b]['status'] != 'reviewed', abs(positions[b]-positions[a])))
         # Stop once both immediate retained neighbors have supporting evidence.
         idx=positions[a]
         upper=order[idx-1] if idx else None
         lower=order[idx+1] if idx+1 < len(order) else None
-        if session['count'] and (upper is None or upper in better) and (lower is None or lower in worse):
+        if not mixed and session['count'] and (upper is None or upper in better) and (lower is None or lower in worse):
             return None
+        session['prompt_reason'] = ('A fresh pair in this quality band; recent opponents are deprioritized.' if s['places'][a]['band'] else 'No band assigned yet; checking an unreviewed place while avoiding recent opponents.') if mixed else 'Checking this place against nearby placements.'
         return [a,candidates[0]]
 
     def backup(self, destination):

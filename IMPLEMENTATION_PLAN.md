@@ -6,7 +6,8 @@ Status: phases 1–4 have been implemented as a first local release. This docume
 preserves the original design and build plan; `README.md` describes current usage.
 
 Implemented: React/TypeScript UI, Python/SQLite backend, category bands, focused
-comparison sessions, reference selection, provisional ordering, conflict review,
+comparison sessions (varied by default, focused when explicitly requested), reference
+selection, provisional ordering, conflict review,
 cleanup and deletion queues, original/latest/session/checkpoint diffs, repeat
 imports, persistent undo/redo, checkpoints, and downloadable/restorable backups.
 

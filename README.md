@@ -28,14 +28,19 @@ existing export. The app does not change your Beli account.
 2. Select a Beli category. In **Your places**, assign a few broad quality bands and
    open places you remember well to mark them as references. Bands are editable;
    assigned bands appear first, followed by unassigned places in their prior order.
-3. Start a short **Guided review** session. It focuses on one place, uses your
-   reference places when available, and saves every answer. A session may finish
-   early when the immediate neighbors are supported or you don't remember a place.
+3. Start a short **Guided review** session. Normal sessions cover different places,
+   avoid recent opponents, and use your reference places when available.
+   **Review this place** runs a focused session for one placement instead. Each
+   answer is saved, and the screen explains why the next pair was selected.
 4. Review and accept the proposal. Answers are durable before acceptance; your
    accepted working order changes only when you accept the session. Band edits
    and manual moves are separate saved actions.
 5. Use **Before & after** to compare with the original export, latest Beli export,
    current session, or a saved checkpoint. You can revisit an earlier comparison.
+
+Use **Back** to return to the previous screen and **Previous answer** to undo
+your most recent comparison. If another edit followed that answer, undo that edit
+first using the toolbar.
 
 Comparison shortcuts: **1** prefer left, **2** prefer right, **3** about equal,
 **4** don't remember, **5** skip. Shortcuts do not fire while typing into fields.

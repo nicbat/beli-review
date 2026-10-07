@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
+  ArrowLeft,
   ArrowLeftRight,
   BookOpen,
   Check,
@@ -83,6 +84,8 @@ type Session = {
   pair: string[] | null;
   notice: string;
   answers: string[];
+  mode?: string;
+  prompt_reason?: string;
   band_suggestions?: { key: string; band: string; comparison: string }[];
 };
 type View = {
@@ -177,6 +180,15 @@ function App() {
   const [v, setV] = useState<View | null>(null),
     [page, setPage] = useState("home"),
     [category, setCategory] = useState("RES"),
+    [backStack, setBackStack] = useState<
+      {
+        page: string;
+        category: string;
+        query: string;
+        filter: string;
+        baseline: string;
+      }[]
+    >([]),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [saved, setSaved] = useState("Saved locally"),
@@ -257,7 +269,32 @@ function App() {
   const reviewed = active.filter((k) =>
     ["reviewed", "provisional"].includes(s?.places[k].status || ""),
   ).length;
+  const rememberView = () =>
+    setBackStack((stack) => [
+      ...stack.slice(-49),
+      { page, category, query, filter, baseline },
+    ]);
+  const goBack = () => {
+    if (selected) {
+      setSelected(null);
+      return;
+    }
+    if (bandEdit) {
+      setBandEdit(null);
+      return;
+    }
+    const previous = backStack[backStack.length - 1];
+    if (!previous) return;
+    setBackStack((stack) => stack.slice(0, -1));
+    setPage(previous.page);
+    setCategory(previous.category);
+    setQuery(previous.query);
+    setFilter(previous.filter);
+    setBaseline(previous.baseline);
+    setError("");
+  };
   const navigate = (p: string) => {
+    if (p !== page) rememberView();
     setPage(p);
     setSelected(null);
     setError("");
@@ -673,27 +710,39 @@ function App() {
       </aside>
       <div className="workspace">
         <header className="topbar">
-          <label className="category-label">
-            Your list
-            <select
-              aria-label="Category"
-              value={category}
-              onChange={(e) => {
-                setCategory(e.target.value);
-                setSelected(null);
-                setBandEdit(null);
-              }}
+          <div className="topbar-navigation">
+            <button
+              className="back-button"
+              aria-label="Go back"
+              disabled={busy || (!backStack.length && !selected && !bandEdit)}
+              onClick={goBack}
             >
-              {Object.entries({ ...labels, ...v.categories }).map(
-                ([c, name]) => (
-                  <option key={c} value={c}>
-                    {name}
-                    {s!.order[c] ? ` (${s!.order[c].length})` : ""}
-                  </option>
-                ),
-              )}
-            </select>
-          </label>
+              <ArrowLeft size={17} />
+              Back
+            </button>
+            <label className="category-label">
+              Your list
+              <select
+                aria-label="Category"
+                value={category}
+                onChange={(e) => {
+                  rememberView();
+                  setCategory(e.target.value);
+                  setSelected(null);
+                  setBandEdit(null);
+                }}
+              >
+                {Object.entries({ ...labels, ...v.categories }).map(
+                  ([c, name]) => (
+                    <option key={c} value={c}>
+                      {name}
+                      {s!.order[c] ? ` (${s!.order[c].length})` : ""}
+                    </option>
+                  ),
+                )}
+              </select>
+            </label>
+          </div>
           <div className="save-tools">
             <span
               role="status"
@@ -969,14 +1018,30 @@ function App() {
                         }}
                       />
                     </div>
+                    <button
+                      disabled={
+                        busy ||
+                        v.history[0]?.label !== "Saved comparison" ||
+                        s!.comparisons[s!.comparisons.length - 1]?.session !==
+                          session.id
+                      }
+                      title="Undo your most recent comparison answer. If you made another edit afterward, use Undo first."
+                      onClick={() => void act({ action: "undo" })}
+                    >
+                      <ArrowLeft size={15} />
+                      Previous answer
+                    </button>
                     <button onClick={() => navigate("home")}>
                       <Pause size={15} />
                       Pause
                     </button>
-                    <button onClick={() => setPage("changes")}>
+                    <button onClick={() => navigate("changes")}>
                       Review session
                     </button>
                   </div>
+                  {session.prompt_reason && session.pair && (
+                    <p className="small">{session.prompt_reason}</p>
+                  )}
                   {session.notice && <p className="notice">{session.notice}</p>}
                   {(session.band_suggestions || [])
                     .filter((item) => s!.places[item.key].band !== item.band)
