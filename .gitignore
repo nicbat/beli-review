@@ -1,0 +1,10 @@
+data/
+__pycache__/
+*.pyc
+.env
+.venv/
+node_modules/
+dist/
+artifacts/
+HANDOFF.md
+*.sqlite3*
