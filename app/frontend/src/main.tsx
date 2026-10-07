@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   ArrowLeft,
@@ -9,6 +9,7 @@ import {
   CircleHelp,
   ClipboardList,
   Coffee,
+  Copy,
   Download,
   Flag,
   FolderInput,
@@ -99,6 +100,7 @@ type View = {
     latest: string | null;
     order: Record<string, string[]>;
     places: Record<string, Detail>;
+    draft_notes?: Record<string, string>;
     bands: Record<string, string[]>;
     sessions: Record<string, Session>;
     comparisons: Comparison[];
@@ -214,6 +216,75 @@ function App() {
     [moveAnchor, setMoveAnchor] = useState(""),
     [moveSide, setMoveSide] = useState("before"),
     [failedRequest, setFailedRequest] = useState<Action | null>(null);
+  const [pendingNotes, setPendingNotes] = useState<Record<string, string>>({});
+  const notesRef = useRef<Record<string, string>>({});
+  const [notesReady, setNotesReady] = useState(false);
+  const [noteSaveFailed, setNoteSaveFailed] = useState(false);
+  const noteStorageKey = v?.state.original
+    ? `beli-review-drafts:${v.state.original}`
+    : null;
+  useEffect(() => {
+    setNotesReady(false);
+    if (!noteStorageKey) return;
+    try {
+      const cached = JSON.parse(localStorage.getItem(noteStorageKey) || "{}");
+      if (
+        !cached ||
+        typeof cached !== "object" ||
+        Array.isArray(cached) ||
+        Object.values(cached).some((value) => typeof value !== "string")
+      )
+        throw new Error("Invalid draft recovery data");
+      notesRef.current = cached;
+      setPendingNotes(cached);
+      setNotesReady(true);
+    } catch {
+      setError("Could not load draft recovery data from this browser.");
+    }
+  }, [noteStorageKey]);
+  function updatePendingNotes(next: Record<string, string>) {
+    if (!noteStorageKey) return;
+    // Write synchronously before navigation or closing the tab can interrupt autosave.
+    localStorage.setItem(noteStorageKey, JSON.stringify(next));
+    notesRef.current = next;
+    setPendingNotes(next);
+  }
+  function editNote(key: string, value: string) {
+    try {
+      updatePendingNotes({ ...notesRef.current, [key]: value });
+      setNoteSaveFailed(false);
+    } catch {
+      setError(
+        "This browser could not save the draft. Free up local storage and try again.",
+      );
+    }
+  }
+  useEffect(() => {
+    if (!notesReady || busy || noteSaveFailed) return;
+    const next = Object.entries(pendingNotes)[0];
+    if (!next) return;
+    const [key, value] = next;
+    const timer = window.setTimeout(async () => {
+      const alreadySaved =
+        (v?.state.draft_notes?.[key.split(":")[1]] ?? "") === value;
+      const ok =
+        alreadySaved || (await act({ action: "draft_note", key, value }));
+      if (!ok) {
+        setNoteSaveFailed(true);
+        return;
+      }
+      if (notesRef.current[key] === value) {
+        const remaining = { ...notesRef.current };
+        delete remaining[key];
+        try {
+          updatePendingNotes(remaining);
+        } catch {
+          setNoteSaveFailed(true);
+        }
+      }
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [pendingNotes, notesReady, busy, noteSaveFailed, v]);
   const refresh = async () => {
     try {
       const value = await api("state");
@@ -502,6 +573,17 @@ function App() {
             </div>
           )}
         </div>
+        <DraftNote
+          name={e.name}
+          value={
+            pendingNotes[k] ?? s!.draft_notes?.[String(e.business_id)] ?? ""
+          }
+          pending={Object.hasOwn(pendingNotes, k)}
+          failed={noteSaveFailed && Object.hasOwn(pendingNotes, k)}
+          ready={notesReady}
+          onChange={(value) => editNote(k, value)}
+          retry={() => setNoteSaveFailed(false)}
+        />
         {(!!e.previous_notes?.length || !!e.previous_photos?.length) && (
           <details>
             <summary>Content retained from earlier exports</summary>
@@ -655,6 +737,14 @@ function App() {
       entries[k].flags.no_note ||
       entries[k].flags.no_photos ||
       entries[k].flags.missing_caption,
+    drafts: (k) =>
+      Boolean(
+        (
+          pendingNotes[k] ??
+          s!.draft_notes?.[String(entries[k].business_id)] ??
+          ""
+        ).trim(),
+      ),
     no_note: (k) => entries[k].flags.no_note,
     no_photos: (k) => entries[k].flags.no_photos,
     missing_caption: (k) => entries[k].flags.missing_caption,
@@ -1217,6 +1307,7 @@ function App() {
                     <option value="unreviewed">Unreviewed</option>
                     <option value="uncertain">Don’t remember</option>
                     <option value="missing">Any missing information</option>
+                    <option value="drafts">Draft notes for Beli</option>
                     <option value="no_note">No written note</option>
                     <option value="no_photos">No photos</option>
                     <option value="missing_caption">
@@ -1937,3 +2028,64 @@ function Reason({
   );
 }
 createRoot(document.getElementById("root")!).render(<App />);
+
+function DraftNote({
+  name,
+  value,
+  pending,
+  failed,
+  ready,
+  onChange,
+  retry,
+}: {
+  name: string;
+  value: string;
+  pending: boolean;
+  failed: boolean;
+  ready: boolean;
+  onChange: (value: string) => void;
+  retry: () => void;
+}) {
+  const [copyStatus, setCopyStatus] = useState("");
+  useEffect(() => setCopyStatus(""), [value]);
+  return (
+    <div className="draft-note">
+      <label className="field">
+        Draft note for Beli
+        <textarea
+          aria-label={`Draft note for ${name}`}
+          placeholder="What do you remember? Write something to paste into Beli later…"
+          value={value}
+          disabled={!ready}
+          maxLength={20000}
+          rows={3}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      </label>
+      <div className="draft-note-actions">
+        <span className="small" role="status">
+          {failed
+            ? "Saved in browser; database save needs retry."
+            : pending
+              ? "Saved in browser · saving to database…"
+              : "Saved locally · paste into Beli when ready"}
+        </span>
+        {failed && <button onClick={retry}>Retry note save</button>}
+        <button
+          disabled={!value}
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(value);
+              setCopyStatus("Copied");
+            } catch {
+              setCopyStatus("Select the text and copy manually");
+            }
+          }}
+        >
+          <Copy size={15} />
+          {copyStatus || "Copy note"}
+        </button>
+      </div>
+    </div>
+  );
+}

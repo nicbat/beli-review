@@ -38,6 +38,30 @@ class WorkshopTests(unittest.TestCase):
         self.assertFalse(self.store.view()['entries']['RES:1']['flags']['no_note'])
         self.assertTrue(self.store.view()['entries']['RES:2']['flags']['no_photos'])
 
+    def test_draft_notes_survive_restart_and_import_without_changing_source(self):
+        note = "Remember the courtyard.\nGo back for dinner."
+        self.action('draft_note', key='RES:2', value=note)
+        self.assertEqual(Store(self.path).view()['state']['draft_notes']['2'], note)
+        self.assertTrue(self.store.view()['entries']['RES:2']['flags']['no_note'])
+        self.action('import', payload=fixture((1,2,3), '2026-10-08T10:00:00+00:00'))
+        self.assertEqual(self.state()['draft_notes']['2'], note)
+        self.assertEqual(self.store.view()['entries']['RES:2']['notes'], [])
+        self.action('draft_note', key='RES:2', value='')
+        self.assertNotIn('2', self.state()['draft_notes'])
+        self.action('undo')
+        self.assertEqual(self.state()['draft_notes']['2'], note)
+
+    def test_draft_note_validates_and_supports_old_workspaces(self):
+        for key, value in [('RES:999', 'hello'), ('RES:2', None), ('RES:2', 'x' * 20001)]:
+            with self.assertRaises(ValueError):
+                self.action('draft_note', key=key, value=value)
+        # Existing workspaces do not have a draft_notes field.
+        state = self.state()
+        state.pop('draft_notes', None)
+        with self.store.connect() as db:
+            self.store.apply(db, state, 'draft_note', dict(key='RES:1', value='Local draft'))
+        self.assertEqual(state['draft_notes']['1'], 'Local draft')
+
     def test_same_import_preview_is_noop(self):
         self.assertTrue(self.store.preview(fixture())['duplicate'])
         rev=self.store.view()['revision']
@@ -177,6 +201,7 @@ class WorkshopTests(unittest.TestCase):
         self.assertEqual(self.state(),before['state'])
 
     def test_backup_restores_full_workspace(self):
+        self.action('draft_note', key='RES:2', value='Bring friends next time')
         self.action('start');self.action('answer',outcome='right')
         backup=Path(self.temp.name)/'backup.sqlite3'
         self.store.backup(backup);Store.validate_backup(backup)

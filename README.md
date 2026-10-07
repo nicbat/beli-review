@@ -75,11 +75,20 @@ Images load from Beli's existing image URLs, with a fallback display when
 unavailable. Text, captions, rankings, and review work function offline. Image
 caching and direct Beli synchronization are not implemented.
 
+Write a **Draft note for Beli** on any place card, including during comparisons.
+Drafts autosave locally and have a **Copy note** button for pasting into Beli.
+Use the **Draft notes for Beli** filter in Your places to find them again.
+Drafts stay separate from imported notes, survive newer imports, and follow the
+business if it appears in another category. Clear a draft when you no longer need it.
+
 ## Saving and backups
 
 Every edit is committed to `data/workshop.sqlite3` before the UI reports **Saved
 locally**. Sessions, comparisons, flags, persistent undo/redo, immutable source
-snapshots, and checkpoints live in that database. Browser storage is not required.
+snapshots, draft notes, and checkpoints live in that database. Draft typing also
+uses browser storage for immediate recovery if you close the tab before its
+database autosave finishes; pending drafts resume saving when you reopen the app.
+Wait for the draft's **Saved locally** message before downloading a backup.
 Revision checks prevent stale tabs from silently replacing newer decisions.
 
 Use **Download workspace backup** for a consistent SQLite backup, including source

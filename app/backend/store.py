@@ -28,7 +28,7 @@ def key(category, business_id):
 
 def initial():
     return dict(account=None, original=None, latest=None, sources=[], order={}, places={},
-                bands={c: BANDS[:] for c in CATEGORIES}, comparisons=[], sessions={}, issues=[], moves=[])
+                draft_notes={}, bands={c: BANDS[:] for c in CATEGORIES}, comparisons=[], sessions={}, issues=[], moves=[])
 
 
 def normalize(payload):
@@ -232,6 +232,20 @@ class Store:
         db.execute('INSERT INTO checkpoints VALUES (?,?,?,?)', (str(uuid.uuid4()), now(), name[:160], encode(s)))
 
     def apply(self, db, s, action, r):
+        if action == 'draft_note':
+            k = r.get('key')
+            if k not in s['places']:
+                raise ValueError('Place not found.')
+            value = r.get('value')
+            if not isinstance(value, str) or len(value) > 20000:
+                raise ValueError('Draft notes must be text of at most 20,000 characters.')
+            drafts = s.setdefault('draft_notes', {})
+            business_id = k.split(':', 1)[1]
+            if value:
+                drafts[business_id] = value
+            else:
+                drafts.pop(business_id, None)
+            return 'Saved draft note for Beli'
         if action == 'import':
             payload, report = r['payload'], r.get('report') or {}
             n = normalize(payload)

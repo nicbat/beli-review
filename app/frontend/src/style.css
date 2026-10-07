@@ -1333,3 +1333,23 @@ footer {
     flex-wrap: wrap;
   }
 }
+
+.draft-note {
+  margin: 16px 0;
+}
+.draft-note textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 88px;
+}
+.draft-note-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.draft-note-actions .small {
+  flex: 1;
+  min-width: 160px;
+}
