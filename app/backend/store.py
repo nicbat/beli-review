@@ -1,4 +1,5 @@
 """Transactional local workspace. Source exports are immutable; decisions are versioned."""
+from collections import Counter
 from contextlib import contextmanager, closing
 import hashlib
 import heapq
@@ -142,11 +143,14 @@ class Store:
         row = db.execute('SELECT normalized FROM imports WHERE id=?', (sid,)).fetchone()
         return json.loads(row[0])
 
-    def entries(self, db, state):
+    def entries(self, db, state, sources=None):
         entries = {}
         # Sources are chronological; older imports never replace newer source content.
         for sid in state['sources']:
-            for k, current in self.source(db, sid)['entries'].items():
+            source = sources[sid] if sources is not None else self.source(db, sid)
+            for k, original in source['entries'].items():
+                # Historical attachments belong to the merged view, not the snapshot.
+                current = dict(original)
                 previous = entries.get(k, {})
                 for field in ('notes','photos'):
                     history = previous.get('previous_' + field, []) + previous.get(field, [])
@@ -158,22 +162,26 @@ class Store:
     def view(self):
         with self.connect() as db:
             revision, s = self.read(db)
-            entries = self.entries(db, s)
+            # Decode each immutable snapshot once for this response. Keeping this
+            # cache request-local also makes backup restores and imports immediately visible.
+            sources, snapshots = {}, []
+            for row in db.execute('SELECT id,imported_at,normalized FROM imports ORDER BY imported_at DESC'):
+                source = json.loads(row['normalized'])
+                sources[row['id']] = source
+                snapshots.append(dict(id=row['id'], imported_at=row['imported_at'],
+                                      exported_at=source['exported_at'], count=len(source['entries'])))
+            entries = self.entries(db, s, sources)
             for k, e in entries.items():
                 e['flags'] = dict(no_photos=not e['photos'],
                                   no_note=not any(str(n.get('value') or '').strip() for n in e['notes']),
                                   missing_caption=any(not str(p.get('description') or '').strip() for p in e['photos']))
-            snapshots = [dict(id=r['id'], imported_at=r['imported_at'],
-                              exported_at=json.loads(r['normalized'])['exported_at'],
-                              count=len(json.loads(r['normalized'])['entries']))
-                         for r in db.execute('SELECT * FROM imports ORDER BY imported_at DESC')]
             history = [dict(r) for r in db.execute('SELECT id,revision,created_at,label FROM operations ORDER BY revision DESC LIMIT 100')]
             checkpoints = [dict(id=r['id'], created_at=r['created_at'], name=r['name'], order=json.loads(r['state'])['order']) for r in db.execute('SELECT * FROM checkpoints ORDER BY created_at DESC')]
             undo = db.execute('SELECT COUNT(*) FROM undo_stack WHERE undone=0').fetchone()[0]
             redo = db.execute('SELECT COUNT(*) FROM undo_stack WHERE undone=1').fetchone()[0]
             return dict(revision=revision, state=s, entries=entries, categories=CATEGORIES,
-                        original=self.source(db, s['original'])['order'],
-                        latest=self.source(db, s['latest'])['order'], imports=snapshots,
+                        original=sources[s['original']]['order'] if s['original'] else {},
+                        latest=sources[s['latest']]['order'] if s['latest'] else {}, imports=snapshots,
                         history=history, checkpoints=checkpoints, can_undo=bool(undo), can_redo=bool(redo))
 
     def preview(self, payload, report=None):
@@ -516,10 +524,10 @@ class Store:
         seen = {frozenset((r['a'],r['b'])) for r in decisions}
         positions = {k:i for i,k in enumerate(order)}
         recent = decisions[-20:]
-        exposure = {k:sum(k in (r['a'],r['b']) for r in recent) for k in order}
-        total_exposure = {k:sum(k in (r['a'],r['b']) for r in decisions) for k in order}
+        exposure = Counter(k for r in recent for k in {r['a'], r['b']})
+        total_exposure = Counter(k for r in decisions for k in {r['a'], r['b']})
         session_decisions = [r for r in decisions if r['session'] == session['id']]
-        session_exposure = {k:sum(k in (r['a'],r['b']) for r in session_decisions) for k in order}
+        session_exposure = Counter(k for r in session_decisions for k in {r['a'], r['b']})
         asked_targets = {r['a'] for r in session_decisions}
         mixed = session.get('mode','mixed') == 'mixed'
         if mixed or not session.get('target'):
@@ -531,18 +539,18 @@ class Store:
                 return None
         else:
             targets = [session['target']]
+        graph = {k:set() for k in order}
+        reverse = {k:set() for k in order}
+        for r in decisions:
+            if r['outcome'] not in ('left','right'):
+                continue
+            winner,loser = (r['a'],r['b']) if r['outcome']=='left' else (r['b'],r['a'])
+            if winner in graph and loser in graph:
+                graph[winner].add(loser); reverse[loser].add(winner)
         for a in targets:
-            if a not in order:
+            if a not in positions:
                 continue
             session['target'] = a
-            graph = {k:set() for k in order}
-            reverse = {k:set() for k in order}
-            for r in decisions:
-                if r['outcome'] not in ('left','right'):
-                    continue
-                winner,loser = (r['a'],r['b']) if r['outcome']=='left' else (r['b'],r['a'])
-                if winner in graph and loser in graph:
-                    graph[winner].add(loser); reverse[loser].add(winner)
             def reachable(edges):
                 found=set(); todo=list(edges[a])
                 while todo:
@@ -551,7 +559,8 @@ class Store:
                         found.add(k); todo.extend(edges[k]-found)
                 return found
             better,worse=reachable(reverse),reachable(graph)
-            candidates=[b for b in order if b != a and b not in better|worse and frozenset((a,b)) not in seen
+            related = better | worse
+            candidates=[b for b in order if b != a and b not in related and frozenset((a,b)) not in seen
                         and (not mixed or session_exposure[b] < 2)]
             if not candidates:
                 continue

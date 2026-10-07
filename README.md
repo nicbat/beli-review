@@ -37,10 +37,14 @@ existing export. The app does not change your Beli account.
    and manual moves are separate saved actions.
 5. Use **Before & after** to compare with the original export, latest Beli export,
    current session, or a saved checkpoint. You can revisit an earlier comparison.
+   Pure additions/removals do not label unchanged survivors as reordered.
 
 Use **Back** to return to the previous screen and **Previous answer** to undo
 your most recent comparison. If another edit followed that answer, undo that edit
 first using the toolbar.
+
+The toolbar’s moon/sun button toggles dark mode. It initially follows your system
+preference and remembers an explicit selection in this browser.
 
 Comparison shortcuts: **1** prefer left, **2** prefer right, **3** about equal,
 **4** don't remember, **5** skip. Shortcuts do not fire while typing into fields.
@@ -105,6 +109,8 @@ python3 -m unittest -v test_export.py
 For frontend hot reload, run `python3 run.py --no-build` in one terminal and
 `npm run dev` in another. Vite proxies API requests to port 8765. A build is needed
 before serving the app directly through the Python server.
+
+Frontend tests require Node.js 22.6+ for built-in TypeScript stripping.
 
 The automated tests use temporary databases and synthetic exports. They cover
 transactional state changes, account validation, repeat imports, partial exports,

@@ -1,0 +1,170 @@
+:root {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  color: #e3eaf5;
+  background: #171f2c;
+  --ink: #e3eaf5;
+  --muted: #abb8cb;
+  --line: #3c495e;
+  --plum: #d6a5cc;
+  --blue: #293a52;
+}
+
+:root[data-theme="dark"] :is(button, .button, input, select, textarea) {
+  background-color: #202b3b;
+  border-color: var(--line);
+}
+:root[data-theme="dark"] :is(button:hover, .button:hover) {
+  background-color: #2d3a4e;
+  border-color: #7c8ca6;
+}
+:root[data-theme="dark"] :is(.primary, .brand-mark) {
+  background: #d6a5cc;
+  color: #291d2b;
+  border-color: #d6a5cc;
+}
+:root[data-theme="dark"] .primary:hover {
+  background: #e7bcdf;
+  color: #291d2b;
+  border-color: #e7bcdf;
+}
+:root[data-theme="dark"] .sidebar {
+  background: #1c2738;
+  border-color: var(--line);
+}
+:root[data-theme="dark"]
+  :is(
+    nav button,
+    .icon-button,
+    .text-button,
+    .place-name,
+    .queue-link,
+    .back-button,
+    .uncertain-buttons button,
+    .search input,
+    .category-label select
+  ) {
+  background-color: transparent;
+}
+:root[data-theme="dark"] :is(nav button.active, .secondary) {
+  background: #303b50;
+}
+:root[data-theme="dark"]
+  :is(.panel, .memory, .search, .place-list, .change-list, .modal) {
+  background: #202b3b;
+}
+:root[data-theme="dark"] :is(.hero, .progress-ring > div) {
+  background: #352e45;
+  border-color: #58445e;
+}
+:root[data-theme="dark"] :is(.hero p, .progress-ring span, .heading-drawing) {
+  color: #cebbd8;
+}
+:root[data-theme="dark"]
+  :is(
+    .pill,
+    .hero-actions select,
+    .memory blockquote,
+    .prefer-buttons .keycap
+  ) {
+  border-color: #8b7295;
+}
+:root[data-theme="dark"] .progress-ring {
+  background: conic-gradient(#d6a5cc var(--progress), #56445f 0);
+}
+:root[data-theme="dark"]
+  :is(
+    .band-row,
+    .queue-link,
+    .card-actions,
+    .place-row,
+    .change-row,
+    .issue-row,
+    .keycap
+  ) {
+  border-color: var(--line);
+}
+:root[data-theme="dark"]
+  :is(
+    .photos img,
+    .photo-failed,
+    .empty-photo,
+    .card-actions button,
+    .session-progress,
+    .upload-button
+  ) {
+  background: #283447;
+}
+:root[data-theme="dark"] :is(.empty-photo, .position, footer) {
+  color: var(--muted);
+}
+:root[data-theme="dark"] .badges span {
+  background: #334258;
+  color: #c5d2e5;
+}
+:root[data-theme="dark"] .badges .new {
+  background: #25463b;
+  color: #b3dfc4;
+}
+:root[data-theme="dark"] .badges .warn {
+  background: #513e2d;
+  color: #f3cc9f;
+}
+:root[data-theme="dark"] .chosen {
+  background: #4c3751 !important;
+}
+:root[data-theme="dark"] :is(.versus, .drawer) {
+  background: #171f2c;
+}
+:root[data-theme="dark"] .answer-bar {
+  background: #171f2cf5;
+}
+:root[data-theme="dark"] .notice {
+  background: #293a52;
+  border-color: #97b7e8;
+}
+:root[data-theme="dark"] .error {
+  background: #482e35;
+  border-color: #99616c;
+  color: #ffd0d0;
+}
+:root[data-theme="dark"] .save-error {
+  color: #ffb3b7;
+}
+:root[data-theme="dark"] .saved {
+  color: #a4d5c5;
+}
+:root[data-theme="dark"] .local-dot {
+  background: #a4d5c5;
+}
+:root[data-theme="dark"] .spinner {
+  border-color: #466b60;
+  border-top-color: #a4d5c5;
+}
+:root[data-theme="dark"] .modal-backdrop {
+  background: #0c1421aa;
+}
+:root[data-theme="dark"] :is(button, a, input, select, textarea):focus-visible,
+:root[data-theme="dark"] .upload-button:focus-within {
+  outline-color: #e4b7db;
+}
+
+.theme-toggle {
+  flex-shrink: 0;
+}
+@media (max-width: 480px) {
+  .topbar {
+    height: auto;
+    min-height: 65px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .save-tools {
+    margin-left: auto;
+  }
+}

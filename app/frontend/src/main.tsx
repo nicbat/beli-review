@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   ArrowLeft,
@@ -28,6 +28,9 @@ import {
   X,
 } from "lucide-react";
 import "./style.css";
+import { rankChanges } from "./rankChanges";
+import "./theme.css";
+import { ThemeToggle } from "./ThemeToggle";
 
 type Place = {
   key: string;
@@ -264,11 +267,26 @@ function App() {
   const order = s?.order[category] || [];
   const session = s?.sessions[category];
   const entries = v?.entries || {};
-  const active = order.filter((k) => !s?.places[k].excluded);
-  const newCount = order.filter((k) => s?.places[k].status === "new").length;
-  const reviewed = active.filter((k) =>
-    ["reviewed", "provisional"].includes(s?.places[k].status || ""),
-  ).length;
+  // Reuse category indexes across search, dialog, and other UI-only renders.
+  const { active, activeRanks, bandCounts, newCount, reviewed } =
+    useMemo(() => {
+      const active: string[] = [];
+      const activeRanks = new Map<string, number>();
+      const bandCounts = new Map<string, number>();
+      let newCount = 0;
+      let reviewed = 0;
+      for (const key of s?.order[category] || []) {
+        const place = s!.places[key];
+        if (place.status === "new") newCount++;
+        if (place.excluded) continue;
+        active.push(key);
+        activeRanks.set(key, active.length);
+        const band = place.band || "";
+        bandCounts.set(band, (bandCounts.get(band) || 0) + 1);
+        if (["reviewed", "provisional"].includes(place.status)) reviewed++;
+      }
+      return { active, activeRanks, bandCounts, newCount, reviewed };
+    }, [s, category]);
   const rememberView = () =>
     setBackStack((stack) => [
       ...stack.slice(-49),
@@ -572,7 +590,7 @@ function App() {
             ["left", "right"].includes(r.outcome),
         )
         .forEach((r) => explicit.add(r.a));
-    const moved = kept.filter((k) => before.indexOf(k) !== kept.indexOf(k));
+    const { beforeRanks, keptRanks, moved } = rankChanges(before, kept);
     return (
       <>
         {moved.length === 0 ? (
@@ -583,10 +601,10 @@ function App() {
               <div className="change-row" key={k}>
                 <div className="rank-change">
                   <span>
-                    {before.includes(k) ? before.indexOf(k) + 1 : "New"}
+                    {beforeRanks.has(k) ? beforeRanks.get(k)! + 1 : "New"}
                   </span>
                   <ChevronRight size={16} />
-                  <strong>{kept.indexOf(k) + 1}</strong>
+                  <strong>{keptRanks.get(k)! + 1}</strong>
                 </div>
                 <div>
                   <button
@@ -598,14 +616,14 @@ function App() {
                   <p className="small">
                     {explicit.has(k) ? "Explicitly moved" : "Position shifted"}{" "}
                     · Was{" "}
-                    {before.indexOf(k) > 0
-                      ? `below ${entries[before[before.indexOf(k) - 1]]?.name}`
-                      : before.includes(k)
+                    {(beforeRanks.get(k) ?? -1) > 0
+                      ? `below ${entries[before[beforeRanks.get(k)! - 1]]?.name}`
+                      : beforeRanks.has(k)
                         ? "top of list"
                         : "not in this baseline"}
                     ; now{" "}
-                    {kept.indexOf(k) > 0
-                      ? `below ${entries[kept[kept.indexOf(k) - 1]]?.name}`
+                    {keptRanks.get(k)! > 0
+                      ? `below ${entries[kept[keptRanks.get(k)! - 1]]?.name}`
                       : "top of list"}
                   </p>
                 </div>
@@ -744,6 +762,7 @@ function App() {
             </label>
           </div>
           <div className="save-tools">
+            <ThemeToggle />
             <span
               role="status"
               className={saved === "Change not saved" ? "save-error" : "saved"}
@@ -907,20 +926,13 @@ function App() {
                         <div className="band-row" key={band}>
                           <span className={`band-dot band-${i}`} />
                           <span>{band}</span>
-                          <strong>
-                            {
-                              active.filter((k) => s!.places[k].band === band)
-                                .length
-                            }
-                          </strong>
+                          <strong>{bandCounts.get(band) || 0}</strong>
                         </div>
                       ))}
                       <div className="band-row">
                         <CircleHelp size={15} />
                         <span>Unassigned / unsure</span>
-                        <strong>
-                          {active.filter((k) => !s!.places[k].band).length}
-                        </strong>
+                        <strong>{bandCounts.get("") || 0}</strong>
                       </div>
                       <button
                         className="secondary full"
@@ -1124,7 +1136,6 @@ function App() {
                         {session.count} answers saved. Review the proposed
                         ordering before accepting it.
                       </p>
-                      {changeRows(session.before, session.proposal)}
                       <div className="actions">
                         <button
                           className="primary"
@@ -1140,6 +1151,7 @@ function App() {
                           Discard proposal
                         </button>
                       </div>
+                      {changeRows(session.before, session.proposal)}
                     </section>
                   )}
                 </>
@@ -1222,7 +1234,7 @@ function App() {
                   filtered.map((k) => (
                     <div className="place-row" key={k}>
                       <span className="position">
-                        {s!.places[k].excluded ? "—" : active.indexOf(k) + 1}
+                        {s!.places[k].excluded ? "—" : activeRanks.get(k)}
                       </span>
                       <button
                         className="place-name"
