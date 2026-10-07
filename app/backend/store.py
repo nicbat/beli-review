@@ -498,6 +498,7 @@ class Store:
         order = [k for k in session['proposal'] if not s['places'][k]['excluded'] and not s['places'][k]['missing']
                  and (s['places'][k]['status'] != 'uncertain' or (session.get('mode') == 'focused' and session.get('target') == k))]
         if len(order) < 2:
+            session['notice'] = 'Fewer than two eligible places remain to compare.'
             return None
         decisions = [r for r in s['comparisons'] if r['active'] and r['category'] == c]
         # Settled, equal, and skipped pairs are not automatically asked again.
@@ -515,56 +516,63 @@ class Store:
                        and (not mixed or (k not in asked_targets and session_exposure[k] < 2))]
             targets.sort(key=lambda k:(s['places'][k]['status'] != 'new', exposure[k], not s['places'][k]['attention'], positions[k]))
             if not targets:
+                session['notice'] = 'No more unreviewed places are eligible for this session. Your saved answers are ready to review.'
                 return None
-            session['target'] = targets[0]
-        a = session['target']
-        if a not in order:
-            return None
-        graph = {k:set() for k in order}
-        reverse = {k:set() for k in order}
-        for r in decisions:
-            if r['outcome'] not in ('left','right'):
+        else:
+            targets = [session['target']]
+        for a in targets:
+            if a not in order:
                 continue
-            winner,loser = (r['a'],r['b']) if r['outcome']=='left' else (r['b'],r['a'])
-            if winner in graph and loser in graph:
-                graph[winner].add(loser); reverse[loser].add(winner)
-        def reachable(edges):
-            found=set(); todo=list(edges[a])
-            while todo:
-                k=todo.pop()
-                if k not in found:
-                    found.add(k); todo.extend(edges[k]-found)
-            return found
-        better,worse=reachable(reverse),reachable(graph)
-        candidates=[b for b in order if b != a and b not in better|worse and frozenset((a,b)) not in seen
-                    and (not mixed or session_exposure[b] < 2)]
-        if not candidates:
-            return None
-        # Reference order is an explicit user choice. Narrow within those anchors;
-        # unreviewed imported positions only suggest questions, never inferred votes.
-        references=[b for b in candidates if s['places'][b]['reference']]
-        if references:
-            low=max((positions[k] for k in better if s['places'][k]['reference']),default=-1)
-            high=min((positions[k] for k in worse if s['places'][k]['reference']),default=len(order))
-            interval=[b for b in references if low < positions[b] < high]
-            if interval:
-                same_band=[b for b in interval if s['places'][b]['band']==s['places'][a]['band']]
-                pool=same_band or interval
-                midpoint=positions[pool[len(pool)//2]]
-                pool.sort(key=lambda k:(exposure[k], abs(positions[k]-midpoint)))
-                session['prompt_reason'] = 'Compare with a reference place you selected.'
-                return [a,pool[0]]
-        candidates.sort(key=lambda b:(s['places'][b]['band'] != s['places'][a]['band'],
-                                     exposure[b] if mixed else 0,
-                                     s['places'][b]['status'] != 'reviewed', abs(positions[b]-positions[a])))
-        # Stop once both immediate retained neighbors have supporting evidence.
-        idx=positions[a]
-        upper=order[idx-1] if idx else None
-        lower=order[idx+1] if idx+1 < len(order) else None
-        if not mixed and session['count'] and (upper is None or upper in better) and (lower is None or lower in worse):
-            return None
-        session['prompt_reason'] = ('A fresh pair in this quality band; recent opponents are deprioritized.' if s['places'][a]['band'] else 'No band assigned yet; checking an unreviewed place while avoiding recent opponents.') if mixed else 'Checking this place against nearby placements.'
-        return [a,candidates[0]]
+            session['target'] = a
+            graph = {k:set() for k in order}
+            reverse = {k:set() for k in order}
+            for r in decisions:
+                if r['outcome'] not in ('left','right'):
+                    continue
+                winner,loser = (r['a'],r['b']) if r['outcome']=='left' else (r['b'],r['a'])
+                if winner in graph and loser in graph:
+                    graph[winner].add(loser); reverse[loser].add(winner)
+            def reachable(edges):
+                found=set(); todo=list(edges[a])
+                while todo:
+                    k=todo.pop()
+                    if k not in found:
+                        found.add(k); todo.extend(edges[k]-found)
+                return found
+            better,worse=reachable(reverse),reachable(graph)
+            candidates=[b for b in order if b != a and b not in better|worse and frozenset((a,b)) not in seen
+                        and (not mixed or session_exposure[b] < 2)]
+            if not candidates:
+                continue
+            # Reference order is an explicit user choice. Narrow within those anchors;
+            # unreviewed imported positions only suggest questions, never inferred votes.
+            references=[b for b in candidates if s['places'][b]['reference']]
+            if references:
+                low=max((positions[k] for k in better if s['places'][k]['reference']),default=-1)
+                high=min((positions[k] for k in worse if s['places'][k]['reference']),default=len(order))
+                interval=[b for b in references if low < positions[b] < high]
+                if interval:
+                    same_band=[b for b in interval if s['places'][b]['band']==s['places'][a]['band']]
+                    pool=same_band or interval
+                    midpoint=positions[pool[len(pool)//2]]
+                    pool.sort(key=lambda k:(exposure[k], abs(positions[k]-midpoint)))
+                    session['prompt_reason'] = 'Compare with a reference place you selected.'
+                    return [a,pool[0]]
+            candidates.sort(key=lambda b:(s['places'][b]['band'] != s['places'][a]['band'],
+                                         exposure[b] if mixed else 0,
+                                         s['places'][b]['status'] != 'reviewed', abs(positions[b]-positions[a])))
+            # Stop once both immediate retained neighbors have supporting evidence.
+            idx=positions[a]
+            upper=order[idx-1] if idx else None
+            lower=order[idx+1] if idx+1 < len(order) else None
+            if not mixed and session['count'] and (upper is None or upper in better) and (lower is None or lower in worse):
+                session['notice'] = 'This place has supporting comparisons on both sides. Its focused review is complete.'
+                return None
+            session['prompt_reason'] = ('A fresh pair in this quality band; recent opponents are deprioritized.' if s['places'][a]['band'] else 'No band assigned yet; checking an unreviewed place while avoiding recent opponents.') if mixed else 'Checking this place against nearby placements.'
+            return [a,candidates[0]]
+
+        session['notice'] = 'No more eligible, unanswered comparisons are available for this session. You can accept these answers or review a specific place.'
+        return None
 
     def backup(self, destination):
         with self.connect() as source, closing(sqlite3.connect(destination)) as target:

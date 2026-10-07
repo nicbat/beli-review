@@ -274,4 +274,31 @@ class WorkshopTests(unittest.TestCase):
         self.action('start',target='RES:1')
         self.assertNotEqual(set(self.state()['sessions']['RES']['pair']),set(pair))
 
+    def test_mixed_session_tries_next_target_when_first_is_exhausted(self):
+        self.action('start')
+        with self.store.connect() as db:
+            revision,state=self.store.read(db)
+        session=state['sessions']['RES']
+        # The first target is settled against every other place. Others still
+        # have useful comparisons among themselves, so the session must continue.
+        state['comparisons']=[dict(id=str(i),a='RES:1',b=f'RES:{i}',outcome='left',active=True,category='RES',session='older',at='') for i in range(2,7)]
+        # Keep recent-exposure selection pointed at the exhausted first target.
+        for k in state['places']:
+            state['places'][k]['status']='reviewed'
+        state['places']['RES:1']['status']='new'
+        state['places']['RES:2']['status']='unreviewed'
+        pair=Store.next_pair(state,'RES',session)
+        self.assertIsNotNone(pair)
+        self.assertEqual(pair[0],'RES:2')
+        self.assertNotIn('RES:1',pair)
+
+    def test_small_category_explains_early_finish(self):
+        with self.store.connect() as db:
+            _,state=self.store.read(db)
+        for k in state['places']:
+            state['places'][k]['excluded']=k!='RES:1'
+        session=dict(proposal=state['order']['RES'],mode='mixed',id='test',count=0,target=None)
+        self.assertIsNone(Store.next_pair(state,'RES',session))
+        self.assertIn('Fewer than two',session['notice'])
+
 if __name__=='__main__':unittest.main()
