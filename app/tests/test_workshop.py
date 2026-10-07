@@ -311,4 +311,13 @@ class WorkshopTests(unittest.TestCase):
         self.assertEqual(self.state()['places']['RES:2']['band'],"Didn't like")
         self.assertEqual(self.state()['order']['RES'],before)
 
+    def test_variety_remembers_appearances_outside_recent_window(self):
+        self.action('start')
+        state=self.state()
+        # All venues have equal recent exposure. Place 1 was overused earlier.
+        state['comparisons']=[dict(id=str(i),a='RES:1',b='RES:6',outcome='skip',active=True,category='RES',session='old') for i in range(3)]
+        state['comparisons'] += [dict(id=f'recent-{i}',a='RES:5',b='RES:6',outcome='skip',active=True,category='RES',session='old') for i in range(20)]
+        pair=Store.next_pair(state,'RES',state['sessions']['RES'])
+        self.assertEqual(pair,['RES:2','RES:3'])
+
 if __name__=='__main__':unittest.main()

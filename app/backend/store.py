@@ -517,6 +517,7 @@ class Store:
         positions = {k:i for i,k in enumerate(order)}
         recent = decisions[-20:]
         exposure = {k:sum(k in (r['a'],r['b']) for r in recent) for k in order}
+        total_exposure = {k:sum(k in (r['a'],r['b']) for r in decisions) for k in order}
         session_decisions = [r for r in decisions if r['session'] == session['id']]
         session_exposure = {k:sum(k in (r['a'],r['b']) for r in session_decisions) for k in order}
         asked_targets = {r['a'] for r in session_decisions}
@@ -524,7 +525,7 @@ class Store:
         if mixed or not session.get('target'):
             targets = [k for k in order if (s['places'][k]['status'] in ('new','unreviewed') or s['places'][k]['attention'])
                        and (not mixed or (k not in asked_targets and session_exposure[k] < 2))]
-            targets.sort(key=lambda k:(s['places'][k]['status'] != 'new', exposure[k], not s['places'][k]['attention'], positions[k]))
+            targets.sort(key=lambda k:(s['places'][k]['status'] != 'new', exposure[k], total_exposure[k], not s['places'][k]['attention'], positions[k]))
             if not targets:
                 session['notice'] = 'No more unreviewed places are eligible for this session. Your saved answers are ready to review.'
                 return None
@@ -565,11 +566,12 @@ class Store:
                     same_band=[b for b in interval if s['places'][b]['band']==s['places'][a]['band']]
                     pool=same_band or interval
                     midpoint=positions[pool[len(pool)//2]]
-                    pool.sort(key=lambda k:(exposure[k], abs(positions[k]-midpoint)))
+                    pool.sort(key=lambda k:(exposure[k], total_exposure[k], abs(positions[k]-midpoint)))
                     session['prompt_reason'] = 'Compare with a reference place you selected.'
                     return [a,pool[0]]
             candidates.sort(key=lambda b:(s['places'][b]['band'] != s['places'][a]['band'],
                                          exposure[b] if mixed else 0,
+                                         total_exposure[b] if mixed else 0,
                                          s['places'][b]['status'] != 'reviewed', abs(positions[b]-positions[a])))
             # Stop once both immediate retained neighbors have supporting evidence.
             idx=positions[a]
