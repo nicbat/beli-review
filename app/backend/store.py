@@ -9,6 +9,7 @@ import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from .verification import analyze, confirmation
 
 CATEGORIES = {'RES': 'Restaurants', 'COF': 'Coffee', 'BAK': 'Bakeries', 'DES': 'Desserts', 'BAR': 'Bars'}
 BANDS = ['Favorites', 'Very good', 'Good', 'Fine', "Didn't like", 'Bad']
@@ -180,6 +181,7 @@ class Store:
             undo = db.execute('SELECT COUNT(*) FROM undo_stack WHERE undone=0').fetchone()[0]
             redo = db.execute('SELECT COUNT(*) FROM undo_stack WHERE undone=1').fetchone()[0]
             return dict(revision=revision, state=s, entries=entries, categories=CATEGORIES,
+                        verification={c: analyze(s, c) for c in s["order"]},
                         original=sources[s['original']]['order'] if s['original'] else {},
                         latest=sources[s['latest']]['order'] if s['latest'] else {}, imports=snapshots,
                         history=history, checkpoints=checkpoints, can_undo=bool(undo), can_redo=bool(redo))
@@ -217,6 +219,13 @@ class Store:
             rev, s = self.read(db)
             if request.get('revision') != rev:
                 raise Conflict('This workspace changed in another tab. Reload the latest state before trying again.')
+            # Older confirmations predate position snapshots. Establish their
+            # baseline before the next edit, without pretending to know past changes.
+            for category, members in s['order'].items():
+                for member in members:
+                    place = s['places'][member]
+                    if place['status'] == 'reviewed' and 'confirmation' not in place:
+                        place['confirmation'] = confirmation(s, category, member)
             before = encode(s)
             action = request.get('action')
             label = self.apply(db, s, action, request)
@@ -355,6 +364,7 @@ class Store:
                 idx = s['order'][c].index(anchor) + (r.get('side') == 'after')
                 s['order'][c].insert(idx, k)
                 p['status'] = 'reviewed'
+                p['confirmation'] = confirmation(s, c, k)
                 positions = {member:i for i,member in enumerate(s['order'][c])}
                 for decision in s['comparisons']:
                     if decision['category'] == c and decision['active'] and decision['outcome'] in ('left','right'):
@@ -388,6 +398,10 @@ class Store:
                 if r['status'] not in ('reviewed', 'unreviewed', 'uncertain'):
                     raise ValueError('Invalid review status.')
                 p['status'] = r['status']
+                if r['status'] == 'reviewed':
+                    p['confirmation'] = confirmation(s, c, k)
+                else:
+                    p.pop('confirmation', None)
             # Exclusion retains the full order, so restoration uses surviving neighbors.
             session = s['sessions'].get(c)
             if session and session.get('pair') and k in session['pair'] and p['excluded']:
@@ -420,7 +434,7 @@ class Store:
             if target and target not in s['order'][c]:
                 raise ValueError('Choose a place in this category.')
             session = dict(id=str(uuid.uuid4()), status='active', count=0, limit=limit, before=s['order'][c][:],
-                           proposal=s['order'][c][:], answers=[], pair=None, target=target, mode='focused' if target else 'mixed', notice='', started=now(), superseded=[], band_suggestions=[])
+                           proposal=s['order'][c][:], answers=[], pair=None, target=target, mode='focused' if target else ('verify' if r.get('mode') == 'verify' else 'mixed'), notice='', started=now(), superseded=[], band_suggestions=[])
             s['sessions'][c] = session
             session['pair'] = self.next_pair(s, c, session)
             return 'Started comparison session'
@@ -471,7 +485,7 @@ class Store:
             if outcome == 'unknown':
                 s['places'][a]['status'] = 'uncertain'
                 session['notice'] = 'Set aside for later because you don’t remember this place.'
-            session['pair'] = self.next_pair(s, c, session) if session['count'] < session['limit'] and (outcome != 'unknown' or session.get('mode','mixed') == 'mixed') else None
+            session['pair'] = self.next_pair(s, c, session) if session['count'] < session['limit'] and (outcome != 'unknown' or session.get('mode','mixed') in ('mixed', 'verify')) else None
             return 'Saved comparison'
         if action in ('accept', 'discard'):
             session = s['sessions'].get(c)
@@ -487,7 +501,7 @@ class Store:
                 for record in s['comparisons']:
                     if record['session'] == session['id'] and record['active'] and record['outcome'] in ('left', 'right', 'equal'):
                         k = record['a']
-                        if s['places'][k]['status'] != 'uncertain':
+                        if s['places'][k]['status'] not in ('uncertain', 'reviewed'):
                             s['places'][k]['status'] = 'provisional'
             else:
                 for record in s['comparisons']:
@@ -543,13 +557,18 @@ class Store:
         session_decisions = [r for r in decisions if r['session'] == session['id']]
         session_exposure = Counter(k for r in session_decisions for k in {r['a'], r['b']})
         asked_targets = {r['a'] for r in session_decisions}
-        mixed = session.get('mode','mixed') == 'mixed'
+        verification = session.get('mode') == 'verify'
+        mixed = session.get('mode','mixed') in ('mixed', 'verify')
+        report = analyze(s, c, session['proposal']) if verification else None
         if mixed or not session.get('target'):
-            targets = [k for k in order if (s['places'][k]['status'] in ('new','unreviewed') or s['places'][k]['attention'])
+            targets = [k for k in order if ((report['places'][k]['status'] in ('unchecked', 'insufficient', 'changed', 'conflict')) if verification else (s['places'][k]['status'] in ('new','unreviewed') or s['places'][k]['attention']))
                        and (not mixed or (k not in asked_targets and session_exposure[k] < 2))]
             targets.sort(key=lambda k:(s['places'][k]['status'] != 'new', exposure[k], total_exposure[k], not s['places'][k]['attention'], positions[k]))
+            if verification:
+                priority = {'conflict': 0, 'changed': 1, 'unchecked': 2, 'insufficient': 3}
+                targets.sort(key=lambda k: (priority[report['places'][k]['status']], exposure[k], total_exposure[k], positions[k]))
             if not targets:
-                session['notice'] = 'No more unreviewed places are eligible for this session. Your saved answers are ready to review.'
+                session['notice'] = ('No more places need fresh verification comparisons in this session. Inspect the verification groups for any remaining issues.' if verification else 'No more unreviewed places are eligible for this session. Your saved answers are ready to review.')
                 return None
         else:
             targets = [session['target']]
@@ -580,6 +599,16 @@ class Store:
                 continue
             # Reference order is an explicit user choice. Narrow within those anchors;
             # unreviewed imported positions only suggest questions, never inferred votes.
+            if verification:
+                # Band disagreements already have evidence; resolve those in the
+                # verification page instead of repeatedly asking the same pair.
+                candidates = [b for b in candidates if s['places'][b]['band'] == s['places'][a]['band']]
+                candidates.sort(key=lambda b: (b not in report['places'][a]['unresolved'],
+                                               exposure[b], total_exposure[b], abs(positions[b]-positions[a])))
+                if candidates:
+                    session['prompt_reason'] = 'Verification: checking an unresolved placement within this quality band.'
+                    return [a, candidates[0]]
+                continue
             references=[b for b in candidates if s['places'][b]['reference']]
             if references:
                 low=max((positions[k] for k in better if s['places'][k]['reference']),default=-1)
@@ -606,7 +635,7 @@ class Store:
             session['prompt_reason'] = ('A fresh pair in this quality band; recent opponents are deprioritized.' if s['places'][a]['band'] else 'No band assigned yet; checking an unreviewed place while avoiding recent opponents.') if mixed else 'Checking this place against nearby placements.'
             return [a,candidates[0]]
 
-        session['notice'] = 'No more eligible, unanswered comparisons are available for this session. You can accept these answers or review a specific place.'
+        session['notice'] = ('No fresh verification pairs remain. Check Needs verification to resolve band conflicts, confirm placements, or revisit saved evidence.' if verification else 'No more eligible, unanswered comparisons are available for this session. You can accept these answers or review a specific place.')
         return None
 
     def backup(self, destination):

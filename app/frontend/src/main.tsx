@@ -92,7 +92,26 @@ type Session = {
   prompt_reason?: string;
   band_suggestions?: { key: string; band: string; comparison: string }[];
 };
+type VerificationPlace = {
+  status: string;
+  issues: {
+    kind: string;
+    reason: string;
+    chain: string[];
+    comparisons: string[];
+  }[];
+  unresolved: string[];
+  neighbors: string[];
+  compared: boolean;
+};
 type View = {
+  verification: Record<
+    string,
+    {
+      counts: Record<string, number>;
+      places: Record<string, VerificationPlace>;
+    }
+  >;
   revision: number;
   state: {
     account: string | null;
@@ -334,6 +353,17 @@ function App() {
       setBusy(false);
     }
   }
+  const verification = v?.verification?.[category];
+  const verificationLabels: Record<string, string> = {
+    conflict: "Conflicting evidence",
+    changed: "Changed since confirmation",
+    unchecked: "Placement needs checking",
+    insufficient: "Not enough information",
+    supported: "Supported by comparisons",
+    confirmed: "Confirmed by you",
+    uncertain: "Set aside: don't remember",
+  };
+  const [verificationFilter, setVerificationFilter] = useState("needs");
   const s = v?.state;
   const order = s?.order[category] || [];
   const session = s?.sessions[category];
@@ -349,15 +379,15 @@ function App() {
       for (const key of s?.order[category] || []) {
         const place = s!.places[key];
         if (place.status === "new") newCount++;
-        if (place.excluded) continue;
+        if (place.excluded || place.missing) continue;
         active.push(key);
         activeRanks.set(key, active.length);
         const band = place.band || "";
         bandCounts.set(band, (bandCounts.get(band) || 0) + 1);
-        if (["reviewed", "provisional"].includes(place.status)) reviewed++;
+        if (verification?.places[key]?.status === "confirmed") reviewed++;
       }
       return { active, activeRanks, bandCounts, newCount, reviewed };
-    }, [s, category]);
+    }, [s, category, verification]);
   const rememberView = () =>
     setBackStack((stack) => [
       ...stack.slice(-49),
@@ -427,8 +457,8 @@ function App() {
       previous?.focus();
     };
   }, [selected, !!bandEdit]);
-  const start = async (target?: string) => {
-    if (await act({ action: "start", target, limit: sessionSize })) {
+  const start = async (target?: string, mode?: string) => {
+    if (await act({ action: "start", target, mode, limit: sessionSize })) {
       navigate("review");
     }
   };
@@ -763,6 +793,7 @@ function App() {
     ["home", "Overview", Home],
     ["review", "Guided review", ArrowLeftRight],
     ["library", "Your places", BookOpen],
+    ["verify", "Needs verification", CircleHelp],
     ["cleanup", "Cleanup", ClipboardList],
     ["changes", "Before & after", History],
     ["imports", "Imports & backups", FolderInput],
@@ -990,9 +1021,29 @@ function App() {
                     >
                       <div>
                         <strong>{reviewed}</strong>
-                        <span>of {active.length} reviewed</span>
+                        <span>of {active.length} confirmed</span>
                       </div>
                     </div>
+                  </section>
+                  <section className="panel verification-summary">
+                    <h2>
+                      Needs verification:{" "}
+                      {verification?.counts.needs_verification ?? 0}
+                    </h2>
+                    <p>
+                      {verification?.counts.labeled ?? 0} labeled ·{" "}
+                      {verification?.counts.compared ?? 0} compared ·{" "}
+                      {verification?.counts.confirmed ?? 0} confirmed by you
+                    </p>
+                    <p className="small">
+                      Missing evidence does not mean a rating is wrong.{" "}
+                      {verification?.counts.insufficient ?? 0} places need an
+                      initial check; {verification?.counts.supported ?? 0} have
+                      supporting comparisons.
+                    </p>
+                    <button onClick={() => navigate("verify")}>
+                      Inspect placements <ChevronRight size={16} />
+                    </button>
                   </section>
                   <div className="overview-grid">
                     <section className="panel">
@@ -1396,6 +1447,197 @@ function App() {
                   </div>
                 )}
               </div>
+            </>
+          )}
+          {page === "verify" && verification && (
+            <>
+              <div className="page-heading">
+                <div>
+                  <p className="context">Verification · {labels[category]}</p>
+                  <h1>Check the places that need it.</h1>
+                  <p>
+                    Keep exploring in random sessions, then refine placements
+                    using your saved decisions.
+                  </p>
+                </div>
+              </div>
+              <section className="panel verification-summary">
+                <h2>
+                  {verification.counts.needs_verification} places need
+                  verification
+                </h2>
+                <p>
+                  Counts describe your accepted list. Comparisons from an active
+                  session are provisional until you accept it.
+                </p>
+                <div className="actions">
+                  {[
+                    "conflict",
+                    "changed",
+                    "unchecked",
+                    "insufficient",
+                    "supported",
+                    "confirmed",
+                    "uncertain",
+                  ].map((kind) => (
+                    <button
+                      key={kind}
+                      className={verificationFilter === kind ? "chosen" : ""}
+                      onClick={() => setVerificationFilter(kind)}
+                    >
+                      {verificationLabels[kind]}: {verification.counts[kind]}
+                    </button>
+                  ))}
+                </div>
+                <div className="actions">
+                  <button
+                    className="primary"
+                    disabled={
+                      busy || session?.status === "active" || active.length < 2
+                    }
+                    onClick={() => void start(undefined, "verify")}
+                  >
+                    Start verification session
+                  </button>
+                  <button onClick={() => setVerificationFilter("needs")}>
+                    Show all needing verification
+                  </button>
+                  {session?.status === "active" && (
+                    <button onClick={() => navigate("review")}>
+                      Resume current session
+                    </button>
+                  )}
+                </div>
+                <p className="small">
+                  Verification uses fresh comparisons within bands and your
+                  selected session size. Finish the current session first.
+                  Resolve existing conflicts below by editing bands or
+                  revisiting the supporting answers.
+                </p>
+              </section>
+              {Object.entries(verification.places)
+                .filter(([, detail]) =>
+                  verificationFilter === "needs"
+                    ? ["conflict", "changed", "unchecked"].includes(
+                        detail.status,
+                      )
+                    : detail.status === verificationFilter,
+                )
+                .map(([key, detail]) => (
+                  <section className="panel verification-place" key={key}>
+                    <div className="section-title">
+                      <h2>{entries[key]?.name}</h2>
+                      <span className="pill">
+                        {verificationLabels[detail.status]}
+                      </span>
+                    </div>
+                    <p>{s!.places[key].band ?? "No quality band assigned"}</p>
+                    {detail.issues.map((issue, i) => (
+                      <div key={i} className="verification-evidence">
+                        <p>
+                          <strong>{issue.reason}</strong>
+                        </p>
+                        {issue.chain.length > 0 && (
+                          <p>
+                            {issue.chain
+                              .map((k) => entries[k]?.name ?? k)
+                              .join(" → preferred over → ")}
+                          </p>
+                        )}
+                        <div className="actions">
+                          {issue.chain.map((k) => (
+                            <button key={k} onClick={() => setSelected(k)}>
+                              Inspect {entries[k]?.name ?? k}
+                            </button>
+                          ))}
+                          {issue.comparisons.map((id) => {
+                            const decision = s!.comparisons.find(
+                              (r) => r.id === id,
+                            );
+                            return (
+                              <button
+                                key={id}
+                                disabled={busy || session?.status === "active"}
+                                onClick={async () => {
+                                  if (await act({ action: "revisit", id }))
+                                    navigate("review");
+                                }}
+                              >
+                                Revisit{" "}
+                                {decision
+                                  ? `${entries[decision.a]?.name} / ${entries[decision.b]?.name}`
+                                  : "answer"}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                    {detail.unresolved.length > 0 && (
+                      <p>
+                        Needs evidence against nearby places:{" "}
+                        {detail.unresolved
+                          .map((k) => entries[k]?.name)
+                          .join(", ")}
+                        .
+                      </p>
+                    )}
+                    {detail.status === "insufficient" && (
+                      <p>
+                        No saved preference or equality yet. This does not mean
+                        the rating is wrong.
+                      </p>
+                    )}
+                    {detail.status === "supported" && (
+                      <p>
+                        Saved preferences or equal answers support the
+                        neighboring placements within this band.
+                      </p>
+                    )}
+                    {detail.status === "unchecked" &&
+                      s!.places[key].band === null && (
+                        <p>
+                          Assign a quality band to complete this placement
+                          check.
+                        </p>
+                      )}
+                    <div className="actions">
+                      <button onClick={() => setSelected(key)}>
+                        Inspect place / edit band
+                      </button>
+                      <button
+                        disabled={busy || session?.status === "active"}
+                        onClick={() => void start(key)}
+                      >
+                        Review this place
+                      </button>
+                      <button
+                        disabled={
+                          busy ||
+                          session?.status === "active" ||
+                          detail.status === "conflict"
+                        }
+                        onClick={() =>
+                          void changePlace(key, { status: "reviewed" })
+                        }
+                      >
+                        Looks right — confirm
+                      </button>
+                    </div>
+                  </section>
+                ))}
+              {!Object.values(verification.places).some((detail) =>
+                verificationFilter === "needs"
+                  ? ["conflict", "changed", "unchecked"].includes(detail.status)
+                  : detail.status === verificationFilter,
+              ) && (
+                <div className="panel">
+                  <p>
+                    No places in this group. You can inspect the other groups
+                    above.
+                  </p>
+                </div>
+              )}
             </>
           )}
           {page === "changes" && (
@@ -1826,6 +2068,26 @@ function App() {
               <X />
             </button>
             {memory(selected)}
+            {verification?.places[selected] && (
+              <div className="panel">
+                <strong>
+                  {verificationLabels[verification.places[selected].status]}
+                </strong>
+                <p>
+                  {verification.places[selected].issues
+                    .map((issue) => issue.reason)
+                    .join(". ")}
+                </p>
+                <button
+                  onClick={() => {
+                    setSelected(null);
+                    navigate("verify");
+                  }}
+                >
+                  View verification evidence
+                </button>
+              </div>
+            )}
             <div className="drawer-extra">
               <label className="field">
                 Attention / deletion reason

@@ -1353,3 +1353,20 @@ footer {
   flex: 1;
   min-width: 160px;
 }
+
+.verification-summary,
+.verification-place {
+  margin-bottom: 20px;
+}
+.verification-summary .actions,
+.verification-place .actions {
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+.verification-evidence {
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+.verification-place .section-title {
+  flex-wrap: wrap;
+}

@@ -53,6 +53,31 @@ A compared placement is **provisional**; **Looks right** explicitly confirms a
 place. Equal and uncertain answers do not create strict preferences. Contradictory
 preferences prompt you to keep the older decisions or supersede them.
 
+## Verification after the first pass
+
+Keep using random guided sessions to assign bands. **Needs verification** provides
+a separate pass for checking provisional placements, with counts for conflicting
+evidence, changes since confirmation, and placements that still need checking.
+Places with no preference evidence appear separately as **Not enough information**;
+that is not an accusation that the rating is wrong.
+
+Conflict cards show the saved preference chain, including indirect evidence
+(A over B over C), with buttons to inspect bands or revisit individual answers.
+Revisiting keeps the earlier evidence until you explicitly replace it.
+Verification sessions use fresh pairs within bands, skip already answered or
+inferred pairs, and preserve the short-session limit. A session can end early
+when remaining issues require editing a band, revisiting a skipped pair, or
+explicitly confirming a placement rather than asking a fresh question.
+
+**Looks right** records your confirmation. Future relative-order changes or a
+change to that place's band flag it again; simple rank-number shifts from removal
+do not. Existing confirmations establish a baseline on your next saved edit;
+historical changes before this feature cannot be reconstructed from that baseline.
+Supported placements have evidence against immediate neighbors in the same band,
+not a statistical confidence score. Confirmed places can still appear as an
+opponent while checking another place. Active session evidence is provisional;
+accept or discard the session to settle its effect on the accepted list.
+
 ## Cleanup and newer exports
 
 **Cleanup** has separate filters for missing notes, missing photos, empty photo

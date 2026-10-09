@@ -62,6 +62,22 @@ class WorkshopTests(unittest.TestCase):
             self.store.apply(db, state, 'draft_note', dict(key='RES:1', value='Local draft'))
         self.assertEqual(state['draft_notes']['1'], 'Local draft')
 
+    def test_verification_confirmation_and_sessions_survive_restart(self):
+        for i in range(1,7):
+            self.action('place', key=f'RES:{i}', band='Good')
+        self.action('place', key='RES:2', status='reviewed')
+        self.assertIn('confirmation', self.state()['places']['RES:2'])
+        self.action('start', mode='verify', limit=3)
+        self.assertEqual(self.state()['sessions']['RES']['mode'], 'verify')
+        self.action('answer', outcome='left')
+        self.action('accept')
+        self.assertEqual(self.state()['places']['RES:2']['status'], 'reviewed')
+        self.assertEqual(Store(self.path).view()['verification'], self.store.view()['verification'])
+        self.action('place', key='RES:2', band='Fine')
+        self.assertIn(self.store.view()['verification']['RES']['places']['RES:2']['status'], ('changed', 'conflict'))
+        self.action('undo')
+        self.assertEqual(self.state()['places']['RES:2']['band'], 'Good')
+
     def test_same_import_preview_is_noop(self):
         self.assertTrue(self.store.preview(fixture())['duplicate'])
         rev=self.store.view()['revision']
